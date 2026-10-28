@@ -27,6 +27,10 @@ public class ConsoleUI {
         System.out.println("У каждой карточки есть 4 варианта ответа.");
         System.out.println("Введи номер правильного варианта: 1, 2, 3 или 4.");
         System.out.println();
+        System.out.println("Сначала выберешь тему и сложность.");
+        System.out.println("Команда /hint — подсказка к вопросу.");
+        System.out.println("Команда /review — повторить ошибки.");
+        System.out.println("Команда /restart — начать заново.");
         System.out.println("Команда /help — помощь.");
         System.out.println("Команда exit — выход.");
         System.out.println();
@@ -37,7 +41,8 @@ public class ConsoleUI {
         System.out.println("Бот: " + response);
         System.out.println();
 
-        while (!logic.isFinished(USER_ID)) {
+        // цикл идёт до exit: после завершения доступны /review и /restart
+        while (true) {
 
             System.out.print("Вы: ");
 
@@ -55,7 +60,5 @@ public class ConsoleUI {
             System.out.println("Бот: " + response);
             System.out.println();
         }
-
-        System.out.println("Спасибо за игру!");
     }
 }

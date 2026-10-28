@@ -1,7 +1,9 @@
 package com.practice.data;
 
+import com.practice.logic.Difficulty;
 import com.practice.logic.Question;
 import com.practice.logic.QuestionProvider;
+import com.practice.logic.Topic;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -10,6 +12,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class InMemoryQuestionProvider implements QuestionProvider {
+
+
+    private static final int LINES_PER_QUESTION = 9;
 
     private final List<Question> questions = new ArrayList<>();
 
@@ -27,13 +32,13 @@ public class InMemoryQuestionProvider implements QuestionProvider {
                 }
             }
 
-            if (data.size() % 6 != 0) {
+            if (data.size() % LINES_PER_QUESTION != 0) {
                 throw new IllegalArgumentException(
                         "Неверный формат файла questions.txt"
                 );
             }
 
-            for (int i = 0; i < data.size(); i += 6) {
+            for (int i = 0; i < data.size(); i += LINES_PER_QUESTION) {
 
                 String text = data.get(i);
 
@@ -53,8 +58,19 @@ public class InMemoryQuestionProvider implements QuestionProvider {
                     );
                 }
 
+                Difficulty difficulty = Difficulty.fromNumber(
+                        Integer.parseInt(data.get(i + 6))
+                );
+
+                String hint = data.get(i + 7);
+                String explanation = data.get(i + 8);
+
+
+                Topic topic = Topic.byQuestionNumber(questions.size() + 1);
+
                 questions.add(
-                        new Question(text, options, correctOption)
+                        new Question(text, options, correctOption,
+                                topic, difficulty, hint, explanation)
                 );
             }
 
