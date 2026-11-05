@@ -14,9 +14,7 @@ public class ConsoleUI {
     public ConsoleUI(DialogLogic logic) {
         this.logic = logic;
     }
-
-    public void start() {
-
+    private void printWelcomeMessage() {
         System.out.println("========================================");
         System.out.println("       ВИКТОРИНА ПО ЛИНЕЙНОЙ АЛГЕБРЕ");
         System.out.println("========================================");
@@ -34,6 +32,10 @@ public class ConsoleUI {
         System.out.println("Команда /help — помощь.");
         System.out.println("Команда exit — выход.");
         System.out.println();
+    }
+    public void start() {
+
+        printWelcomeMessage();
 
         String response =
                 logic.processInput(USER_ID, "");
