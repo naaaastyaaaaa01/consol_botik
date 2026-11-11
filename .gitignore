@@ -8,4 +8,9 @@
 # Компилированные файлы
 out/
 *.class
+HEAD
 .idea/
+
+target/
+*.iml
+
