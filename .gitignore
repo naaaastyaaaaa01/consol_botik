@@ -13,4 +13,5 @@ HEAD
 
 target/
 *.iml
-
+# Данные Telegram-бота
+bot.properties
