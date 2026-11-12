@@ -1,0 +1,16 @@
+# IntelliJ IDEA: локальные настройки
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/usage.statistics.xml
+.idea/shelf/
+
+# Сохраняем настройки проекта IntelliJ
+# Компилированные файлы
+out/
+*.class
+HEAD
+.idea/
+
+target/
+*.iml
+
