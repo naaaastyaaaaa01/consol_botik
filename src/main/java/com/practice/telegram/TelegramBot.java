@@ -3,6 +3,8 @@ package com.practice.telegram;
 
 import com.practice.data.DatabaseManager;
 import com.practice.logic.DialogLogic;
+import com.practice.logic.Topic;
+import com.practice.logic.Difficulty;
 
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
@@ -42,6 +44,10 @@ public class TelegramBot extends TelegramLongPollingBot {
     // Находим три строки рамки карточки
     private static final Pattern CARD_FRAME_PATTERN =
             Pattern.compile("(?m)┌─+┐\\R│.*│\\R└─+┘");
+
+    // Находим только разрешённые теги жирного текста
+    private static final Pattern BOLD_TAG_PATTERN =
+            Pattern.compile("</?b>");
 
     public TelegramBot(DialogLogic logic) {
         this.logic = logic;
@@ -191,22 +197,49 @@ public class TelegramBot extends TelegramLongPollingBot {
 
         SendMessage message = new SendMessage();
         message.setChatId(chatId);
-
-        // Преобразуем рамку в моноширинный HTML-блок.
-        // Остальной текст экранируется, чтобы HTML-разметка
-        // не ломалась из-за символов в вопросах.
-        message.setText(toTelegramHtml(response));
         message.setParseMode("HTML");
 
-        if (response.contains("КАРТОЧКА")
-                && logic.isAwaitingAnswer(userId)) {
+        // Меню выбора темы
+        if (logic.isChoosingTopic(userId)) {
 
-            int questionIndex =
-                    logic.getCurrentQuestionIndex(userId);
+            message.setText(
+                    "👋 <b>Привет! Добро пожаловать в математическую викторину!</b>\n\n"
+                            + "🧠 Проверь свои знания по линейной алгебре!\n\n"
+                            + "📚 <b>Выбери тему, по которой хочешь пройти тест:</b>"
+            );
 
-            if (questionIndex >= 0) {
-                message.setReplyMarkup(
-                        createQuestionKeyboard(questionIndex));
+            message.setReplyMarkup(createTopicKeyboard());
+
+        }
+
+        // Меню выбора сложности
+        else if (logic.isChoosingDifficulty(userId)) {
+
+            message.setText(
+                    "✨ <b>Отличный выбор!</b>\n\n"
+                            + "🎯 Теперь выбери уровень сложности:\n\n"
+                            + "💡 После каждого ответа ты увидишь правильный ответ и объяснение."
+            );
+
+            message.setReplyMarkup(createDifficultyKeyboard());
+
+        }
+
+        // Обычный ответ или карточка вопроса
+        else {
+
+            message.setText(toTelegramHtml(response));
+
+            if (response.contains("КАРТОЧКА")
+                    && logic.isAwaitingAnswer(userId)) {
+
+                int questionIndex =
+                        logic.getCurrentQuestionIndex(userId);
+
+                if (questionIndex >= 0) {
+                    message.setReplyMarkup(
+                            createQuestionKeyboard(questionIndex, userId));
+                }
             }
         }
 
@@ -218,6 +251,8 @@ public class TelegramBot extends TelegramLongPollingBot {
         }
     }
 
+    // ================= ФОРМАТИРОВАНИЕ HTML =================
+
     private String toTelegramHtml(String text) {
 
         Matcher matcher = CARD_FRAME_PATTERN.matcher(text);
@@ -227,8 +262,8 @@ public class TelegramBot extends TelegramLongPollingBot {
 
         while (matcher.find()) {
 
-            // Обычный текст перед рамкой
-            result.append(escapeHtml(
+            // Текст перед рамкой: сохраняем жирный шрифт
+            result.append(escapeHtmlPreservingBold(
                     text.substring(lastPosition, matcher.start())));
 
             // Саму рамку помещаем в моноширинный блок
@@ -240,11 +275,39 @@ public class TelegramBot extends TelegramLongPollingBot {
         }
 
         // Остаток текста после последней рамки
+        result.append(escapeHtmlPreservingBold(
+                text.substring(lastPosition)));
+
+        return result.toString();
+    }
+
+    // Экранируем обычный текст, но сохраняем теги <b> и </b>
+    private String escapeHtmlPreservingBold(String text) {
+
+        Matcher matcher = BOLD_TAG_PATTERN.matcher(text);
+        StringBuilder result = new StringBuilder();
+
+        int lastPosition = 0;
+
+        while (matcher.find()) {
+
+            // Экранируем текст до тега
+            result.append(escapeHtml(
+                    text.substring(lastPosition, matcher.start())));
+
+            // Сохраняем сам тег жирного текста
+            result.append(matcher.group());
+
+            lastPosition = matcher.end();
+        }
+
+        // Экранируем оставшийся текст
         result.append(escapeHtml(text.substring(lastPosition)));
 
         return result.toString();
     }
 
+    // Экранирование специальных HTML-символов
     private String escapeHtml(String text) {
 
         return text
@@ -253,34 +316,146 @@ public class TelegramBot extends TelegramLongPollingBot {
                 .replace(">", "&gt;");
     }
 
+    // ================= КНОПКИ ВЫБОРА ТЕМЫ =================
+
+    private InlineKeyboardMarkup createTopicKeyboard() {
+
+        List<List<InlineKeyboardButton>> keyboard =
+                new ArrayList<>();
+
+        // Кнопка выбора всех тем
+        addButtonRow(
+                keyboard,
+                "🌍 Все темы",
+                "topic:0"
+        );
+
+        Topic[] topics = Topic.values();
+
+        String[] emojis = {
+                "📐", "🔢", "🔄", "📏",
+                "✏️", "🔷", "🌐"
+        };
+
+        for (int i = 0; i < topics.length; i++) {
+
+            String buttonText =
+                    emojis[i] + " " + topics[i].getTitle();
+
+            addButtonRow(
+                    keyboard,
+                    buttonText,
+                    "topic:" + (i + 1)
+            );
+        }
+
+        InlineKeyboardMarkup markup =
+                new InlineKeyboardMarkup();
+
+        markup.setKeyboard(keyboard);
+
+        return markup;
+    }
+
+    // ================= КНОПКИ ВЫБОРА СЛОЖНОСТИ =================
+
+    private InlineKeyboardMarkup createDifficultyKeyboard() {
+
+        List<List<InlineKeyboardButton>> keyboard =
+                new ArrayList<>();
+
+        addButtonRow(
+                keyboard,
+                "🎲 Любая сложность",
+                "difficulty:0"
+        );
+
+        Difficulty[] levels = Difficulty.values();
+
+        String[] emojis = {
+                "🟢", "🟡", "🔴"
+        };
+
+        for (int i = 0; i < levels.length; i++) {
+
+            String buttonText =
+                    emojis[i] + " " + levels[i].getTitle();
+
+            addButtonRow(
+                    keyboard,
+                    buttonText,
+                    "difficulty:" + (i + 1)
+            );
+        }
+
+        InlineKeyboardMarkup markup =
+                new InlineKeyboardMarkup();
+
+        markup.setKeyboard(keyboard);
+
+        return markup;
+    }
+
+    // Вспомогательный метод для создания ряда с одной кнопкой
+    private void addButtonRow(
+            List<List<InlineKeyboardButton>> keyboard,
+            String text,
+            String callbackData
+    ) {
+
+        InlineKeyboardButton button =
+                new InlineKeyboardButton();
+
+        button.setText(text);
+        button.setCallbackData(callbackData);
+
+        List<InlineKeyboardButton> row =
+                new ArrayList<>();
+
+        row.add(button);
+        keyboard.add(row);
+    }
+
     // ================= КНОПКИ ОТВЕТОВ И ЖАЛОБЫ =================
 
     private InlineKeyboardMarkup createQuestionKeyboard(
-            int questionIndex
+            int questionIndex,
+            String userId
     ) {
 
         List<List<InlineKeyboardButton>> keyboard =
                 new ArrayList<>();
 
-        // Первый ряд: четыре варианта ответа
-        List<InlineKeyboardButton> answerRow =
-                new ArrayList<>();
+        // Получаем текст вариантов текущего вопроса
+        String[] options = logic.getCurrentOptions(userId);
 
-        for (int i = 1; i <= 4; i++) {
+        // Каждый вариант ответа располагается в отдельной строке
+        for (int i = 0; i < options.length; i++) {
 
             InlineKeyboardButton button =
                     new InlineKeyboardButton();
 
-            button.setText(String.valueOf(i));
+            String buttonText = options[i];
+
+            // Telegram допускает не более 64 символов в тексте кнопки
+            if (buttonText.length() > 64) {
+                buttonText = buttonText.substring(0, 61) + "...";
+            }
+
+            button.setText(buttonText);
+
+            // В callback передаём номер вопроса и номер ответа
             button.setCallbackData(
-                    "answer:" + questionIndex + ":" + i);
+                    "answer:" + questionIndex + ":" + (i + 1));
+
+            List<InlineKeyboardButton> answerRow =
+                    new ArrayList<>();
 
             answerRow.add(button);
+            keyboard.add(answerRow);
         }
 
-        keyboard.add(answerRow);
-
-        // Второй ряд: кнопка жалобы
+        // Отдельный ряд: кнопка жалобы
         InlineKeyboardButton complaintButton =
                 new InlineKeyboardButton();
 
@@ -336,6 +511,18 @@ public class TelegramBot extends TelegramLongPollingBot {
             return;
         }
 
+        // Выбор темы
+        if (data.startsWith("topic:")) {
+            handleTopicCallback(data, userId, chatId);
+            return;
+        }
+
+        // Выбор сложности
+        if (data.startsWith("difficulty:")) {
+            handleDifficultyCallback(data, userId, chatId);
+            return;
+        }
+
         // Нажатие на вариант ответа
         if (data.startsWith("answer:")) {
             handleAnswerCallback(data, userId, chatId);
@@ -358,6 +545,78 @@ public class TelegramBot extends TelegramLongPollingBot {
             }
 
             handleReviewCallback(data, chatId);
+        }
+    }
+
+    // ================= ОБРАБОТКА ВЫБОРА ТЕМЫ =================
+
+    private void handleTopicCallback(
+            String data,
+            String userId,
+            String chatId
+    ) {
+
+        // Не разрешаем использовать старые кнопки темы
+        if (!logic.isChoosingTopic(userId)) {
+            sendText(chatId,
+                    "Это меню уже неактуально. Используй последнее сообщение бота.");
+            return;
+        }
+
+        try {
+            int choice = Integer.parseInt(
+                    data.substring("topic:".length()));
+
+            if (choice < 0 || choice > Topic.values().length) {
+                sendText(chatId, "Некорректный выбор темы.");
+                return;
+            }
+
+            String response = logic.processInput(
+                    userId,
+                    String.valueOf(choice)
+            );
+
+            sendBotResponse(chatId, userId, response);
+
+        } catch (NumberFormatException e) {
+            sendText(chatId, "Не удалось обработать выбор темы.");
+        }
+    }
+
+    // ================= ОБРАБОТКА ВЫБОРА СЛОЖНОСТИ =================
+
+    private void handleDifficultyCallback(
+            String data,
+            String userId,
+            String chatId
+    ) {
+
+        // Не разрешаем использовать старые кнопки сложности
+        if (!logic.isChoosingDifficulty(userId)) {
+            sendText(chatId,
+                    "Это меню уже неактуально. Используй последнее сообщение бота.");
+            return;
+        }
+
+        try {
+            int choice = Integer.parseInt(
+                    data.substring("difficulty:".length()));
+
+            if (choice < 0 || choice > Difficulty.values().length) {
+                sendText(chatId, "Некорректный выбор сложности.");
+                return;
+            }
+
+            String response = logic.processInput(
+                    userId,
+                    String.valueOf(choice)
+            );
+
+            sendBotResponse(chatId, userId, response);
+
+        } catch (NumberFormatException e) {
+            sendText(chatId, "Не удалось обработать выбор сложности.");
         }
     }
 
@@ -622,8 +881,10 @@ public class TelegramBot extends TelegramLongPollingBot {
         SendMessage message = new SendMessage();
         message.setChatId(chatId);
         message.setText(
-                "Привет! 😊 Давно тебя не было в нашей викторине. "
-                        + "Возвращайся и продолжай проверять свои знания!");
+                "👋 Привет! 😊 Давно тебя не было в нашей викторине.\n\n"
+                        + "📚 Возвращайся и продолжай проверять свои знания!\n"
+                        + "🧠 Новые вопросы уже ждут тебя."
+        );
 
         execute(message);
     }
