@@ -1,3 +1,4 @@
+
 package com.practice.logic;
 
 import java.util.ArrayList;
@@ -23,8 +24,6 @@ public class DialogLogic {
 
         String text = input == null ? "" : input.trim();
 
-        // ----- команды, доступные в любой момент -----
-
         if (text.equalsIgnoreCase("/help")) {
             return getHelpMessage();
         }
@@ -43,8 +42,6 @@ public class DialogLogic {
             return "Ты завершил викторину. До встречи!\n\n"
                     + getFinishedHint(session);
         }
-
-        // ----- обработка по текущему этапу -----
 
         switch (session.getStage()) {
 
@@ -67,7 +64,7 @@ public class DialogLogic {
         }
     }
 
-    // ================= выбор темы и сложности =================
+    // ================= ВЫБОР ТЕМЫ И СЛОЖНОСТИ =================
 
     private String getTopicMenu() {
 
@@ -76,6 +73,7 @@ public class DialogLogic {
         sb.append("0. Все темы\n");
 
         Topic[] topics = Topic.values();
+
         for (int i = 0; i < topics.length; i++) {
             sb.append(i + 1).append(". ")
                     .append(topics[i].getTitle()).append("\n");
@@ -92,6 +90,7 @@ public class DialogLogic {
         sb.append("0. Любая\n");
 
         Difficulty[] levels = Difficulty.values();
+
         for (int i = 0; i < levels.length; i++) {
             sb.append(i + 1).append(". ")
                     .append(levels[i].getTitle()).append("\n");
@@ -148,8 +147,13 @@ public class DialogLogic {
                 + formatCurrent(session);
     }
 
-    /** Индексы вопросов, подходящих под тему и сложность (null = любая). */
-    private List<Integer> selectQuestions(Topic topic, Difficulty difficulty) {
+    /**
+     * Индексы вопросов, подходящих под тему и сложность.
+     */
+    private List<Integer> selectQuestions(
+            Topic topic,
+            Difficulty difficulty
+    ) {
 
         List<Integer> result = new ArrayList<>();
 
@@ -169,14 +173,17 @@ public class DialogLogic {
     }
 
     private String describeParams(UserSession session) {
+
         String topic = session.getTopic() == null
                 ? "все темы" : session.getTopic().getTitle();
+
         String level = session.getDifficulty() == null
                 ? "любая сложность" : session.getDifficulty().getTitle();
+
         return topic + ", " + level;
     }
 
-    // ================= повторение ошибок =================
+    // ================= ПОВТОРЕНИЕ ОШИБОК =================
 
     private String startReview(UserSession session) {
 
@@ -184,14 +191,17 @@ public class DialogLogic {
             return "Ошибок для повторения пока нет.";
         }
 
-        session.startRound(new ArrayList<>(session.getWrongQuestions()), true);
+        session.startRound(
+                new ArrayList<>(session.getWrongQuestions()),
+                true
+        );
 
         return "Повторение ошибок. Вопросов: "
                 + session.getQueue().size() + ".\n\n"
                 + formatCurrent(session);
     }
 
-    // ================= ответы и подсказки =================
+    // ================= ОТВЕТЫ И ПОДСКАЗКИ =================
 
     private String handleAnswering(UserSession session, String text) {
 
@@ -279,7 +289,7 @@ public class DialogLogic {
         return sb.toString();
     }
 
-    // ================= форматирование =================
+    // ================= ФОРМАТИРОВАНИЕ КАРТОЧКИ =================
 
     private String formatCurrent(UserSession session) {
 
@@ -299,23 +309,24 @@ public class DialogLogic {
             Question question,
             int questionIndex,
             int total,
-            boolean reviewMode) {
+            boolean reviewMode
+    ) {
 
         StringBuilder result = new StringBuilder();
 
-        result.append("┌──────────────────────────────┐\n");
-        result.append("│      КАРТОЧКА ")
-                .append(questionIndex + 1)
-                .append(" / ")
-                .append(total)
-                .append("       │\n");
-        result.append("└──────────────────────────────┘\n");
+        int width = 30;
+        String title = "КАРТОЧКА " + (questionIndex + 1) + " / " + total;
+
+        result.append("┌").append("─".repeat(width)).append("┐\n");
+        result.append("│").append(centerText(title, width)).append("│\n");
+        result.append("└").append("─".repeat(width)).append("┘\n");
 
         if (reviewMode) {
             result.append("[Повторение ошибок]\n");
         }
 
-        if (question.getTopic() != null && question.getDifficulty() != null) {
+        if (question.getTopic() != null
+                && question.getDifficulty() != null) {
             result.append("Тема: ").append(question.getTopic().getTitle())
                     .append(" | Сложность: ")
                     .append(question.getDifficulty().getTitle())
@@ -338,7 +349,25 @@ public class DialogLogic {
         return result.toString();
     }
 
-    /** Разбирает целое число, при ошибке возвращает -1. */
+    private String centerText(String text, int width) {
+
+        if (text.length() >= width) {
+            return text.substring(0, width);
+        }
+
+        int leftPadding = (width - text.length()) / 2;
+        int rightPadding = width - text.length() - leftPadding;
+
+        return " ".repeat(leftPadding)
+                + text
+                + " ".repeat(rightPadding);
+    }
+
+    // ================= ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ =================
+
+    /**
+     * Разбирает целое число, при ошибке возвращает -1.
+     */
     private int parseNumber(String text) {
         try {
             return Integer.parseInt(text);
@@ -371,5 +400,40 @@ public class DialogLogic {
                 + "/review — повторить вопросы, в которых были ошибки\n"
                 + "/restart — начать заново (выбор темы и сложности)\n"
                 + "exit — завершить игру.";
+    }
+
+    // ================= МЕТОДЫ ДЛЯ СИСТЕМЫ ЖАЛОБ =================
+
+    public boolean isAwaitingAnswer(String userId) {
+
+        UserSession session = sessions.get(userId);
+
+        return session != null
+                && session.getStage() == UserSession.Stage.ANSWERING
+                && !session.isQueueFinished();
+    }
+
+    public int getCurrentQuestionIndex(String userId) {
+
+        UserSession session = sessions.get(userId);
+
+        if (session == null || !isAwaitingAnswer(userId)) {
+            return -1;
+        }
+
+        return session.getCurrentProviderIndex();
+    }
+
+    public String getQuestionText(int providerIndex) {
+
+        if (providerIndex < 0
+                || providerIndex >= questionProvider.getTotalQuestions()) {
+            return null;
+        }
+
+        Question question =
+                questionProvider.getQuestionByIndex(providerIndex);
+
+        return question.getText();
     }
 }

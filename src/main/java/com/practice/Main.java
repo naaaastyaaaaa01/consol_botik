@@ -7,6 +7,7 @@ import com.practice.logic.Question;
 import com.practice.logic.Difficulty;
 import com.practice.ui.ConsoleUI;
 import com.practice.telegram.TelegramBot;
+import com.practice.telegram.ReminderService;
 
 import org.telegram.telegrambots.meta.TelegramBotsApi;
 import org.telegram.telegrambots.updatesreceivers.DefaultBotSession;
@@ -14,7 +15,6 @@ import org.telegram.telegrambots.updatesreceivers.DefaultBotSession;
 public class Main {
 
     public static void main(String[] args) {
-
         if (args.length > 0 && args[0].equalsIgnoreCase("telegram")) {
             startTelegram();
         } else {
@@ -26,14 +26,11 @@ public class Main {
         var provider = new InMemoryQuestionProvider();
         var logic = new DialogLogic(provider);
         var ui = new ConsoleUI(logic);
-
         ui.start();
     }
 
     private static void startTelegram() {
-
-        InMemoryQuestionProvider provider =
-                new InMemoryQuestionProvider();
+        InMemoryQuestionProvider provider = new InMemoryQuestionProvider();
 
         int easy = 0;
         int medium = 0;
@@ -42,17 +39,12 @@ public class Main {
         for (int i = 0; i < provider.getTotalQuestions(); i++) {
             Question question = provider.getQuestionByIndex(i);
 
-            if (question.getDifficulty() == Difficulty.EASY) {
-                easy++;
-            } else if (question.getDifficulty() == Difficulty.MEDIUM) {
-                medium++;
-            } else if (question.getDifficulty() == Difficulty.HARD) {
-                hard++;
-            }
+            if (question.getDifficulty() == Difficulty.EASY) easy++;
+            else if (question.getDifficulty() == Difficulty.MEDIUM) medium++;
+            else if (question.getDifficulty() == Difficulty.HARD) hard++;
         }
 
-        System.out.println("Всего вопросов: "
-                + provider.getTotalQuestions());
+        System.out.println("Всего вопросов: " + provider.getTotalQuestions());
         System.out.println("Лёгких: " + easy);
         System.out.println("Средних: " + medium);
         System.out.println("Сложных: " + hard);
@@ -64,14 +56,16 @@ public class Main {
                     new TelegramBotsApi(DefaultBotSession.class);
 
             TelegramBot bot = new TelegramBot(logic);
-
             botsApi.registerBot(bot);
 
+            ReminderService reminderService = new ReminderService(bot);
+            reminderService.start();
+
             System.out.println("Telegram-бот успешно запущен!");
+            System.out.println("Напоминания автоматически проверяются каждый час.");
 
         } catch (Exception e) {
-            System.out.println("Ошибка запуска бота: "
-                    + e.getMessage());
+            System.out.println("Ошибка запуска бота: " + e.getMessage());
             e.printStackTrace();
         }
     }
