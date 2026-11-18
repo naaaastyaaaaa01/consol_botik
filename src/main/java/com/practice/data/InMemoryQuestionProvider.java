@@ -16,37 +16,35 @@ import java.util.List;
 
 public class InMemoryQuestionProvider implements QuestionProvider {
 
-    private static final int LINES_PER_QUESTION = 9;
+    private static final int LINES_PER_QUESTION = 10;
 
     private final List<Question> questions = new ArrayList<>();
 
     public InMemoryQuestionProvider() {
+        loadQuestions("/questions_easy.txt", Difficulty.EASY);
+        loadQuestions("/questions_medium.txt", Difficulty.MEDIUM);
+        loadQuestions("/questions_hard.txt", Difficulty.HARD);
+    }
 
-        InputStream inputStream =
-                getClass().getResourceAsStream("/questions.txt");
+    private void loadQuestions(String fileName, Difficulty expectedDifficulty) {
+
+        InputStream inputStream = getClass().getResourceAsStream(fileName);
 
         if (inputStream == null) {
-            throw new RuntimeException(
-                    "Не найден файл questions.txt"
-            );
+            throw new RuntimeException("Не найден файл " + fileName);
         }
 
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
 
-            List<String> lines = reader.lines().toList();
-
-            List<String> data = new ArrayList<>();
-
-            for (String line : lines) {
-                if (!line.trim().isEmpty()) {
-                    data.add(line.trim());
-                }
-            }
+            List<String> data = reader.lines()
+                    .map(String::trim)
+                    .filter(line -> !line.isEmpty())
+                    .toList();
 
             if (data.size() % LINES_PER_QUESTION != 0) {
                 throw new IllegalArgumentException(
-                        "Неверный формат файла questions.txt"
+                        "Неверный формат файла " + fileName
                 );
             }
 
@@ -73,10 +71,18 @@ public class InMemoryQuestionProvider implements QuestionProvider {
                         Integer.parseInt(data.get(i + 6))
                 );
 
+                if (difficulty != expectedDifficulty) {
+                    throw new IllegalArgumentException(
+                            "Неверная сложность вопроса в файле " + fileName
+                    );
+                }
+
                 String hint = data.get(i + 7);
                 String explanation = data.get(i + 8);
 
-                Topic topic = Topic.byQuestionNumber(questions.size() + 1);
+                int originalQuestionNumber = Integer.parseInt(data.get(i + 9));
+
+                Topic topic = Topic.byQuestionNumber(originalQuestionNumber);
 
                 questions.add(
                         new Question(
@@ -93,7 +99,7 @@ public class InMemoryQuestionProvider implements QuestionProvider {
 
         } catch (IOException e) {
             throw new RuntimeException(
-                    "Не удалось прочитать questions.txt",
+                    "Не удалось прочитать файл " + fileName,
                     e
             );
         }
