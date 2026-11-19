@@ -38,6 +38,12 @@ public class DialogLogic {
             return startReview(session);
         }
 
+        if (text.equalsIgnoreCase("exit")) {
+            session.setStage(UserSession.Stage.FINISHED);
+            return "Ты завершил викторину. До встречи!\n\n"
+                    + getFinishedHint(session);
+        }
+
         // ----- обработка по текущему этапу -----
 
         switch (session.getStage()) {
