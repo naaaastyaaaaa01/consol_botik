@@ -42,7 +42,8 @@ public class DialogLogic {
             return startReview(session);
         }
 
-        if (text.equalsIgnoreCase("exit")) {
+        if (text.equalsIgnoreCase("/exit")
+                || text.equalsIgnoreCase("exit")) {
             session.setStage(UserSession.Stage.FINISHED);
             return "Ты завершил викторину. До встречи!\n\n"
                     + getFinishedHint(session);
@@ -291,6 +292,7 @@ public class DialogLogic {
             result += "\n<b>📖 Объяснение:</b> "
                     + question.getExplanation();
         }
+
         if (session.isQueueFinished()) {
             session.setStage(UserSession.Stage.FINISHED);
             return result + "\n\n" + getSummary(session);
@@ -322,7 +324,7 @@ public class DialogLogic {
         }
 
         sb.append("/restart — начать заново (выбор темы и сложности).\n");
-        sb.append("exit — выход.");
+        sb.append("/exit — завершить игру.");
 
         return sb.toString();
     }
@@ -455,7 +457,7 @@ public class DialogLogic {
                 + "/hint — подсказка к текущему вопросу\n"
                 + "/review — повторить вопросы, в которых были ошибки\n"
                 + "/restart — начать заново (выбор темы и сложности)\n"
-                + "exit — завершить игру.";
+                + "/exit — завершить игру.";
     }
 
     // ================= МЕТОДЫ ДЛЯ СИСТЕМЫ ЖАЛОБ =================

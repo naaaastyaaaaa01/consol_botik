@@ -1,4 +1,3 @@
-
 package com.practice.telegram;
 
 import com.practice.data.DatabaseManager;
@@ -8,9 +7,12 @@ import com.practice.logic.Difficulty;
 
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
+import org.telegram.telegrambots.meta.api.methods.commands.SetMyCommands;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
+import org.telegram.telegrambots.meta.api.objects.commands.BotCommand;
+import org.telegram.telegrambots.meta.api.objects.commands.scope.BotCommandScopeDefault;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
@@ -83,6 +85,34 @@ public class TelegramBot extends TelegramLongPollingBot {
         }
 
         loadAdmins(properties);
+        registerCommands();
+    }
+
+    // ================= РЕГИСТРАЦИЯ КОМАНД TELEGRAM =================
+
+    private void registerCommands() {
+
+        List<BotCommand> commands = new ArrayList<>();
+
+        commands.add(new BotCommand("help", "Показать справку"));
+        commands.add(new BotCommand("hint", "Подсказка к текущему вопросу"));
+        commands.add(new BotCommand("review", "Повторить вопросы с ошибками"));
+        commands.add(new BotCommand("restart", "Начать заново"));
+        commands.add(new BotCommand("exit", "Завершить игру"));
+
+        SetMyCommands setMyCommands = new SetMyCommands();
+        setMyCommands.setCommands(commands);
+        setMyCommands.setScope(new BotCommandScopeDefault());
+        setMyCommands.setLanguageCode("ru");
+
+        try {
+            execute(setMyCommands);
+            System.out.println("Команды Telegram успешно зарегистрированы!");
+        } catch (TelegramApiException e) {
+            System.out.println(
+                    "Не удалось зарегистрировать команды Telegram: "
+                            + e.getMessage());
+        }
     }
 
     // ================= АДМИНИСТРАТОРЫ =================
