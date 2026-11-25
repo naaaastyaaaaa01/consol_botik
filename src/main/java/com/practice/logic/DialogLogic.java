@@ -86,7 +86,6 @@ public class DialogLogic {
                 && session.getStage() == UserSession.Stage.CHOOSE_DIFFICULTY;
     }
 
-    // Возвращает варианты ответов текущего вопроса для Telegram-кнопок
     public String[] getCurrentOptions(String userId) {
 
         UserSession session = sessions.get(userId);
@@ -100,6 +99,23 @@ public class DialogLogic {
         );
 
         return question.getOptions().clone();
+    }
+
+    // ================= ДАННЫЕ ЗАВЕРШЁННОГО РАУНДА =================
+
+    public boolean isReviewMode(String userId) {
+        UserSession session = sessions.get(userId);
+        return session != null && session.isReviewMode();
+    }
+
+    public int getRoundQuestionCount(String userId) {
+        UserSession session = sessions.get(userId);
+        return session == null ? 0 : session.getQueue().size();
+    }
+
+    public int getRoundCorrectCount(String userId) {
+        UserSession session = sessions.get(userId);
+        return session == null ? 0 : session.getCorrectCount();
     }
 
     // ================= ВЫБОР ТЕМЫ И СЛОЖНОСТИ =================
@@ -383,8 +399,6 @@ public class DialogLogic {
 
         String[] options = question.getOptions();
 
-        // Если хотя бы один вариант длиннее лимита кнопки,
-        // показываем все варианты в карточке полностью.
         if (!allOptionsFitInButtons(options)) {
 
             result.append("<b>💡 Варианты ответов:</b>\n\n");
@@ -456,6 +470,7 @@ public class DialogLogic {
                 + "/help — показать эту справку\n"
                 + "/hint — подсказка к текущему вопросу\n"
                 + "/review — повторить вопросы, в которых были ошибки\n"
+                + "/profile — показать профиль игрока\n"
                 + "/restart — начать заново (выбор темы и сложности)\n"
                 + "/exit — завершить игру.";
     }

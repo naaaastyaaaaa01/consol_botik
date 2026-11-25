@@ -40,7 +40,7 @@ public class DatabaseManager {
         );
     }
 
-    // Создаём таблицы, если они ещё не существуют
+    // Создаём и обновляем таблицы
     private void createTables() throws SQLException {
 
         String usersTable = """
@@ -71,38 +71,160 @@ public class DatabaseManager {
                 )
                 """;
 
+        String quizAttemptsTable = """
+                CREATE TABLE IF NOT EXISTS quiz_attempts (
+                    id BIGSERIAL PRIMARY KEY,
+                    telegram_id TEXT NOT NULL,
+                    completed_at BIGINT NOT NULL,
+                    questions_count INTEGER NOT NULL,
+                    correct_count INTEGER NOT NULL
+                )
+                """;
+
         try (Connection connection = connect();
              Statement statement = connection.createStatement()) {
 
             statement.execute(usersTable);
             statement.execute(complaintsTable);
             statement.execute(adminsTable);
+            statement.execute(quizAttemptsTable);
+
+            // Добавляем новые столбцы в существующую таблицу
+            statement.execute("""
+                    ALTER TABLE users
+                    ADD COLUMN IF NOT EXISTS display_name TEXT
+                    """);
+
+            statement.execute("""
+                    ALTER TABLE users
+                    ADD COLUMN IF NOT EXISTS registered_at BIGINT
+                    """);
+
+            // Заполняем дату регистрации старых пользователей
+            statement.execute("""
+                    UPDATE users
+                    SET registered_at = last_activity
+                    WHERE registered_at IS NULL
+                    """);
         }
     }
 
     // Сохраняем активность пользователя
     public int recordActivity(String telegramId, String chatId)
             throws SQLException {
+        return recordActivity(telegramId, chatId, null);
+    }
+
+    // Сохраняем активность и имя пользователя
+    public int recordActivity(
+            String telegramId,
+            String chatId,
+            String displayName
+    ) throws SQLException {
 
         String sql = """
                 INSERT INTO users
-                (telegram_id, chat_id, last_activity, last_reminder)
-                VALUES (?, ?, ?, NULL)
+                (telegram_id, chat_id, last_activity,
+                 last_reminder, display_name, registered_at)
+                VALUES (?, ?, ?, NULL, ?, ?)
                 ON CONFLICT (telegram_id) DO UPDATE SET
                     chat_id = EXCLUDED.chat_id,
                     last_activity = EXCLUDED.last_activity,
-                    last_reminder = NULL
+                    last_reminder = NULL,
+                    display_name = COALESCE(
+                        EXCLUDED.display_name,
+                        users.display_name
+                    )
                 """;
+
+        long now = System.currentTimeMillis();
 
         try (Connection connection = connect();
              PreparedStatement statement = connection.prepareStatement(sql)) {
 
             statement.setString(1, telegramId);
             statement.setString(2, chatId);
-            statement.setLong(3, System.currentTimeMillis());
+            statement.setLong(3, now);
+            statement.setString(4, displayName);
+            statement.setLong(5, now);
 
             return statement.executeUpdate();
         }
+    }
+
+    // Сохраняем завершённую викторину
+    public int recordQuizAttempt(
+            String telegramId,
+            int questionsCount,
+            int correctCount
+    ) throws SQLException {
+
+        String sql = """
+                INSERT INTO quiz_attempts
+                (telegram_id, completed_at, questions_count, correct_count)
+                VALUES (?, ?, ?, ?)
+                """;
+
+        try (Connection connection = connect();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+
+            statement.setString(1, telegramId);
+            statement.setLong(2, System.currentTimeMillis());
+            statement.setInt(3, questionsCount);
+            statement.setInt(4, correctCount);
+
+            return statement.executeUpdate();
+        }
+    }
+
+    // Получаем профиль пользователя
+    public ProfileData getProfile(String telegramId)
+            throws SQLException {
+
+        String sql = """
+                SELECT
+                    u.display_name,
+                    u.registered_at,
+                    COALESCE(COUNT(q.id), 0) AS quizzes_completed,
+                    COALESCE(SUM(q.questions_count), 0) AS questions_answered,
+                    COALESCE(SUM(q.correct_count), 0) AS correct_answers
+                FROM users u
+                LEFT JOIN quiz_attempts q
+                    ON u.telegram_id = q.telegram_id
+                WHERE u.telegram_id = ?
+                GROUP BY u.telegram_id, u.display_name, u.registered_at
+                """;
+
+        try (Connection connection = connect();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+
+            statement.setString(1, telegramId);
+
+            try (ResultSet result = statement.executeQuery()) {
+
+                if (result.next()) {
+                    return new ProfileData(
+                            result.getString("display_name"),
+                            result.getLong("registered_at"),
+                            result.getInt("quizzes_completed"),
+                            result.getInt("questions_answered"),
+                            result.getInt("correct_answers")
+                    );
+                }
+            }
+        }
+
+        return null;
+    }
+
+    // Данные профиля
+    public record ProfileData(
+            String displayName,
+            long registeredAt,
+            int quizzesCompleted,
+            int questionsAnswered,
+            int correctAnswers
+    ) {
     }
 
     // Получаем пользователей, которым пора отправить напоминание
