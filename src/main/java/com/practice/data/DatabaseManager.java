@@ -7,7 +7,17 @@ import java.util.List;
 
 public class DatabaseManager {
 
-    private static final String DATABASE_URL = "jdbc:sqlite:bot.db";
+    private static final String DATABASE_URL =
+            System.getenv().getOrDefault(
+                    "DB_URL",
+                    "jdbc:postgresql://localhost:5432/quiz_bot_db"
+            );
+
+    private static final String DATABASE_USER =
+            System.getenv().getOrDefault("DB_USER", "postgres");
+
+    private static final String DATABASE_PASSWORD =
+            System.getenv("DB_PASSWORD");
 
     private static final long THREE_DAYS =
             3L * 24 * 60 * 60 * 1000;
@@ -17,7 +27,17 @@ public class DatabaseManager {
     }
 
     private Connection connect() throws SQLException {
-        return DriverManager.getConnection(DATABASE_URL);
+        if (DATABASE_PASSWORD == null || DATABASE_PASSWORD.isBlank()) {
+            throw new SQLException(
+                    "Не задана переменная окружения DB_PASSWORD"
+            );
+        }
+
+        return DriverManager.getConnection(
+                DATABASE_URL,
+                DATABASE_USER,
+                DATABASE_PASSWORD
+        );
     }
 
     // Создаём таблицы, если они ещё не существуют
@@ -27,19 +47,19 @@ public class DatabaseManager {
                 CREATE TABLE IF NOT EXISTS users (
                     telegram_id TEXT PRIMARY KEY,
                     chat_id TEXT NOT NULL,
-                    last_activity INTEGER NOT NULL,
-                    last_reminder INTEGER
+                    last_activity BIGINT NOT NULL,
+                    last_reminder BIGINT
                 )
                 """;
 
         String complaintsTable = """
                 CREATE TABLE IF NOT EXISTS complaints (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id BIGSERIAL PRIMARY KEY,
                     telegram_id TEXT NOT NULL,
                     question_index INTEGER,
                     question_text TEXT NOT NULL,
                     comment TEXT,
-                    created_at INTEGER NOT NULL,
+                    created_at BIGINT NOT NULL,
                     status TEXT NOT NULL DEFAULT 'NEW'
                 )
                 """;
@@ -68,9 +88,9 @@ public class DatabaseManager {
                 INSERT INTO users
                 (telegram_id, chat_id, last_activity, last_reminder)
                 VALUES (?, ?, ?, NULL)
-                ON CONFLICT(telegram_id) DO UPDATE SET
-                    chat_id = excluded.chat_id,
-                    last_activity = excluded.last_activity,
+                ON CONFLICT (telegram_id) DO UPDATE SET
+                    chat_id = EXCLUDED.chat_id,
+                    last_activity = EXCLUDED.last_activity,
                     last_reminder = NULL
                 """;
 
@@ -156,6 +176,7 @@ public class DatabaseManager {
                 (telegram_id, question_index, question_text,
                  comment, created_at, status)
                 VALUES (?, ?, ?, ?, ?, 'NEW')
+                RETURNING id
                 """;
 
         try (Connection connection = connect();
@@ -167,15 +188,9 @@ public class DatabaseManager {
             statement.setString(4, comment);
             statement.setLong(5, System.currentTimeMillis());
 
-            statement.executeUpdate();
-
-            // Получаем ID добавленной жалобы
-            try (Statement idStatement = connection.createStatement();
-                 ResultSet result = idStatement.executeQuery(
-                         "SELECT last_insert_rowid()")) {
-
+            try (ResultSet result = statement.executeQuery()) {
                 if (result.next()) {
-                    return result.getInt(1);
+                    return result.getInt("id");
                 }
             }
         }
@@ -240,8 +255,10 @@ public class DatabaseManager {
             throws SQLException {
 
         String sql = """
-                INSERT OR REPLACE INTO admins (telegram_id, name)
+                INSERT INTO admins (telegram_id, name)
                 VALUES (?, ?)
+                ON CONFLICT (telegram_id) DO UPDATE SET
+                    name = EXCLUDED.name
                 """;
 
         try (Connection connection = connect();
