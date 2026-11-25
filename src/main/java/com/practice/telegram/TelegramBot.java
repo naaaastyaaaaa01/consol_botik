@@ -113,6 +113,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         commands.add(new BotCommand("restart", "Начать заново"));
         commands.add(new BotCommand("exit", "Завершить игру"));
         commands.add(new BotCommand("profile", "Моя статистика"));
+        commands.add(new BotCommand("rating", "Рейтинг игроков"));
 
         SetMyCommands setMyCommands = new SetMyCommands();
         setMyCommands.setCommands(commands);
@@ -222,6 +223,14 @@ public class TelegramBot extends TelegramLongPollingBot {
             return;
         }
 
+        // Команда рейтинга
+        if (command.equals("/rating")
+                || command.startsWith("/rating@")) {
+
+            showRating(chatId, userId);
+            return;
+        }
+
         // Если пользователь оставляет комментарий к жалобе
         if (pendingComplaints.containsKey(userId)) {
 
@@ -235,19 +244,111 @@ public class TelegramBot extends TelegramLongPollingBot {
             return;
         }
 
-        // Проверяем, завершается ли обычная викторина
         boolean finishingRegularQuiz =
                 isRegularQuizAnswer(userId, command);
 
         String response =
                 logic.processInput(userId, command);
 
-        // Сохраняем завершённую обычную викторину
         if (finishingRegularQuiz && logic.isFinished(userId)) {
             recordCompletedQuiz(userId, chatId);
         }
 
         sendBotResponse(chatId, userId, response);
+    }
+
+    // ================= РЕЙТИНГ ИГРОКОВ =================
+
+    private void showRating(String chatId, String userId) {
+
+        try {
+            List<DatabaseManager.RankingEntry> ranking =
+                    database.getRanking();
+
+            DatabaseManager.UserRanking userRanking =
+                    database.getUserRanking(userId);
+
+            StringBuilder text = new StringBuilder();
+
+            text.append("🏆 <b>РЕЙТИНГ ИГРОКОВ</b>\n");
+            text.append("<i>Лучшие игроки математической викторины</i>\n\n");
+
+            if (ranking == null || ranking.isEmpty()) {
+
+                text.append("Пока рейтинг пуст.\n");
+                text.append("Пройди первую викторину и займи своё место!");
+
+            } else {
+
+                for (int i = 0; i < ranking.size(); i++) {
+
+                    DatabaseManager.RankingEntry entry =
+                            ranking.get(i);
+
+                    String medal;
+
+                    switch (i) {
+                        case 0 -> medal = "🥇";
+                        case 1 -> medal = "🥈";
+                        case 2 -> medal = "🥉";
+                        default -> medal = (i + 1) + ".";
+                    }
+
+                    String name = entry.displayName();
+
+                    if (name == null || name.isBlank()) {
+                        name = "Игрок";
+                    }
+
+                    text.append(medal)
+                            .append(" <b>")
+                            .append(escapeHtml(name))
+                            .append("</b> — ")
+                            .append(entry.correctAnswers())
+                            .append("\n");
+                }
+            }
+
+            text.append("\n");
+
+            text.append("━━━━━━━━━━━━━━━━━━\n\n");
+
+            text.append("👤 <b>ТВОЙ РЕЗУЛЬТАТ</b>\n");
+
+            if (userRanking == null) {
+
+                text.append("Ты пока не участвовала в рейтинге.\n");
+                text.append("Пройди обычную викторину, чтобы получить место!");
+
+            } else {
+
+                text.append("Место: <b>№")
+                        .append(userRanking.rank())
+                        .append("</b>\n");
+
+                text.append("Правильных ответов: <b>")
+                        .append(userRanking.correctAnswers())
+                        .append("</b>\n\n");
+
+                if (userRanking.rank() == 1) {
+                    text.append("👑 <i>Ты возглавляешь рейтинг!</i>");
+                } else if (userRanking.rank() <= 3) {
+                    text.append("✨ <i>Ты в тройке лучших! Так держать!</i>");
+                } else {
+                    text.append("<i>Продолжай играть и поднимайся выше!</i>");
+                }
+            }
+
+            sendHtmlText(chatId, text.toString());
+
+        } catch (SQLException e) {
+
+            System.out.println(
+                    "Ошибка получения рейтинга: " + e.getMessage());
+
+            sendText(chatId,
+                    "Не удалось загрузить рейтинг. Попробуй позже.");
+        }
     }
 
     // ================= ПРОФИЛЬ =================
@@ -512,7 +613,6 @@ public class TelegramBot extends TelegramLongPollingBot {
                     "Сохранена завершённая викторина пользователя "
                             + userId);
 
-            // Проверяем повышение титула
             DatabaseManager.ProfileData after =
                     database.getProfile(userId);
 
@@ -554,7 +654,6 @@ public class TelegramBot extends TelegramLongPollingBot {
         message.setChatId(chatId);
         message.setParseMode("HTML");
 
-        // Меню выбора темы
         if (logic.isChoosingTopic(userId)) {
 
             message.setText(
@@ -565,10 +664,7 @@ public class TelegramBot extends TelegramLongPollingBot {
 
             message.setReplyMarkup(createTopicKeyboard());
 
-        }
-
-        // Меню выбора сложности
-        else if (logic.isChoosingDifficulty(userId)) {
+        } else if (logic.isChoosingDifficulty(userId)) {
 
             message.setText(
                     "✨ <b>Отличный выбор!</b>\n\n"
@@ -578,10 +674,7 @@ public class TelegramBot extends TelegramLongPollingBot {
 
             message.setReplyMarkup(createDifficultyKeyboard());
 
-        }
-
-        // Обычный ответ или карточка вопроса
-        else {
+        } else {
 
             message.setText(toTelegramHtml(response));
 
@@ -670,11 +763,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         List<List<InlineKeyboardButton>> keyboard =
                 new ArrayList<>();
 
-        addButtonRow(
-                keyboard,
-                "🌍 Все темы",
-                "topic:0"
-        );
+        addButtonRow(keyboard, "🌍 Все темы", "topic:0");
 
         Topic[] topics = Topic.values();
 
@@ -710,11 +799,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         List<List<InlineKeyboardButton>> keyboard =
                 new ArrayList<>();
 
-        addButtonRow(
-                keyboard,
-                "🎲 Любая сложность",
-                "difficulty:0"
-        );
+        addButtonRow(keyboard, "🎲 Любая сложность", "difficulty:0");
 
         Difficulty[] levels = Difficulty.values();
 
@@ -1290,7 +1375,6 @@ public class TelegramBot extends TelegramLongPollingBot {
         }
     }
 
-    // Отправка уже подготовленного HTML
     private void sendHtmlText(String chatId, String text) {
 
         SendMessage message = new SendMessage();
@@ -1333,7 +1417,6 @@ public class TelegramBot extends TelegramLongPollingBot {
                 int questionIndex,
                 String questionText
         ) {
-
             this.questionIndex = questionIndex;
             this.questionText = questionText;
         }

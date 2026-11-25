@@ -227,6 +227,122 @@ public class DatabaseManager {
     ) {
     }
 
+    // Получаем топ-10 пользователей рейтинга
+    public List<RankingEntry> getRanking() throws SQLException {
+
+        List<RankingEntry> ranking = new ArrayList<>();
+
+        String sql = """
+                SELECT
+                    u.telegram_id,
+                    COALESCE(
+                        NULLIF(u.display_name, ''),
+                        'Игрок'
+                    ) AS display_name,
+                    SUM(q.correct_count) AS total_correct
+                FROM users u
+                JOIN quiz_attempts q
+                    ON u.telegram_id = q.telegram_id
+                GROUP BY u.telegram_id, u.display_name
+                ORDER BY
+                    total_correct DESC,
+                    COUNT(q.id) DESC,
+                    display_name ASC
+                LIMIT 10
+                """;
+
+        try (Connection connection = connect();
+             PreparedStatement statement = connection.prepareStatement(sql);
+             ResultSet result = statement.executeQuery()) {
+
+            while (result.next()) {
+                ranking.add(new RankingEntry(
+                        result.getString("telegram_id"),
+                        result.getString("display_name"),
+                        result.getInt("total_correct")
+                ));
+            }
+        }
+
+        return ranking;
+    }
+
+    // Получаем место конкретного пользователя в рейтинге
+    public UserRanking getUserRanking(String telegramId)
+            throws SQLException {
+
+        String sql = """
+                WITH player_totals AS (
+                    SELECT
+                        u.telegram_id,
+                        COALESCE(
+                            NULLIF(u.display_name, ''),
+                            'Игрок'
+                        ) AS display_name,
+                        SUM(q.correct_count) AS total_correct,
+                        COUNT(q.id) AS quizzes_completed
+                    FROM users u
+                    JOIN quiz_attempts q
+                        ON u.telegram_id = q.telegram_id
+                    GROUP BY u.telegram_id, u.display_name
+                ),
+                ranked_players AS (
+                    SELECT
+                        telegram_id,
+                        display_name,
+                        total_correct,
+                        ROW_NUMBER() OVER (
+                            ORDER BY
+                                total_correct DESC,
+                                quizzes_completed DESC,
+                                display_name ASC
+                        ) AS player_rank
+                    FROM player_totals
+                )
+                SELECT
+                    player_rank,
+                    display_name,
+                    total_correct
+                FROM ranked_players
+                WHERE telegram_id = ?
+                """;
+
+        try (Connection connection = connect();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+
+            statement.setString(1, telegramId);
+
+            try (ResultSet result = statement.executeQuery()) {
+
+                if (result.next()) {
+                    return new UserRanking(
+                            result.getInt("player_rank"),
+                            result.getString("display_name"),
+                            result.getInt("total_correct")
+                    );
+                }
+            }
+        }
+
+        return null;
+    }
+
+    // Данные одного участника рейтинга
+    public record RankingEntry(
+            String telegramId,
+            String displayName,
+            int correctAnswers
+    ) {
+    }
+
+    // Место пользователя в общем рейтинге
+    public record UserRanking(
+            int rank,
+            String displayName,
+            int correctAnswers
+    ) {
+    }
+
     // Получаем пользователей, которым пора отправить напоминание
     public List<UserForReminder> getUsersDueForReminder()
             throws SQLException {
