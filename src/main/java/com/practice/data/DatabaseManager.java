@@ -20,7 +20,9 @@ public class DatabaseManager {
         return DriverManager.getConnection(DATABASE_URL);
     }
 
+    // Создаём таблицы, если они ещё не существуют
     private void createTables() throws SQLException {
+
         String usersTable = """
                 CREATE TABLE IF NOT EXISTS users (
                     telegram_id TEXT PRIMARY KEY,
@@ -59,7 +61,7 @@ public class DatabaseManager {
     }
 
     // Сохраняем активность пользователя
-    public void recordActivity(String telegramId, String chatId)
+    public int recordActivity(String telegramId, String chatId)
             throws SQLException {
 
         String sql = """
@@ -79,7 +81,7 @@ public class DatabaseManager {
             statement.setString(2, chatId);
             statement.setLong(3, System.currentTimeMillis());
 
-            statement.executeUpdate();
+            return statement.executeUpdate();
         }
     }
 
@@ -92,12 +94,11 @@ public class DatabaseManager {
         String sql = """
                 SELECT telegram_id, chat_id
                 FROM users
-                WHERE
-                    last_activity <= ?
-                    AND (
-                        last_reminder IS NULL
-                        OR last_reminder <= ?
-                    )
+                WHERE last_activity <= ?
+                AND (
+                    last_reminder IS NULL
+                    OR last_reminder <= ?
+                )
                 """;
 
         long now = System.currentTimeMillis();
@@ -109,6 +110,7 @@ public class DatabaseManager {
             statement.setLong(2, now - THREE_DAYS);
 
             try (ResultSet result = statement.executeQuery()) {
+
                 while (result.next()) {
                     users.add(new UserForReminder(
                             result.getString("telegram_id"),
@@ -121,8 +123,8 @@ public class DatabaseManager {
         return users;
     }
 
-    // Запоминаем время отправки напоминания
-    public void markReminderSent(String telegramId)
+    // Сохраняем время отправки напоминания
+    public int markReminderSent(String telegramId)
             throws SQLException {
 
         String sql = """
@@ -137,12 +139,12 @@ public class DatabaseManager {
             statement.setLong(1, System.currentTimeMillis());
             statement.setString(2, telegramId);
 
-            statement.executeUpdate();
+            return statement.executeUpdate();
         }
     }
 
-    // Добавляем жалобу
-    public void addComplaint(
+    // Добавляем жалобу и возвращаем её ID
+    public int addComplaint(
             String telegramId,
             int questionIndex,
             String questionText,
@@ -166,10 +168,22 @@ public class DatabaseManager {
             statement.setLong(5, System.currentTimeMillis());
 
             statement.executeUpdate();
+
+            // Получаем ID добавленной жалобы
+            try (Statement idStatement = connection.createStatement();
+                 ResultSet result = idStatement.executeQuery(
+                         "SELECT last_insert_rowid()")) {
+
+                if (result.next()) {
+                    return result.getInt(1);
+                }
+            }
         }
+
+        throw new SQLException("Не удалось получить ID созданной жалобы");
     }
 
-    // Получаем все ещё не рассмотренные жалобы
+    // Получаем нерассмотренные жалобы
     public List<Complaint> getNewComplaints()
             throws SQLException {
 
@@ -202,25 +216,27 @@ public class DatabaseManager {
     }
 
     // Отмечаем жалобу как рассмотренную
-    public void markComplaintReviewed(int complaintId)
+    public int markComplaintReviewed(int complaintId)
             throws SQLException {
 
         String sql = """
                 UPDATE complaints
                 SET status = 'REVIEWED'
                 WHERE id = ?
+                AND status = 'NEW'
                 """;
 
         try (Connection connection = connect();
              PreparedStatement statement = connection.prepareStatement(sql)) {
 
             statement.setInt(1, complaintId);
-            statement.executeUpdate();
+
+            return statement.executeUpdate();
         }
     }
 
     // Добавляем администратора
-    public void addAdmin(String telegramId, String name)
+    public int addAdmin(String telegramId, String name)
             throws SQLException {
 
         String sql = """
@@ -233,7 +249,8 @@ public class DatabaseManager {
 
             statement.setString(1, telegramId);
             statement.setString(2, name);
-            statement.executeUpdate();
+
+            return statement.executeUpdate();
         }
     }
 
@@ -255,75 +272,6 @@ public class DatabaseManager {
             try (ResultSet result = statement.executeQuery()) {
                 return result.next();
             }
-        }
-    }
-
-    // Данные пользователя для отправки напоминания
-    public static class UserForReminder {
-        private final String telegramId;
-        private final String chatId;
-
-        public UserForReminder(String telegramId, String chatId) {
-            this.telegramId = telegramId;
-            this.chatId = chatId;
-        }
-
-        public String getTelegramId() {
-            return telegramId;
-        }
-
-        public String getChatId() {
-            return chatId;
-        }
-    }
-
-    // Данные жалобы
-    public static class Complaint {
-        private final int id;
-        private final String telegramId;
-        private final int questionIndex;
-        private final String questionText;
-        private final String comment;
-        private final long createdAt;
-
-        public Complaint(
-                int id,
-                String telegramId,
-                int questionIndex,
-                String questionText,
-                String comment,
-                long createdAt
-        ) {
-            this.id = id;
-            this.telegramId = telegramId;
-            this.questionIndex = questionIndex;
-            this.questionText = questionText;
-            this.comment = comment;
-            this.createdAt = createdAt;
-        }
-
-        public int getId() {
-            return id;
-        }
-
-        public String getTelegramId() {
-            return telegramId;
-        }
-
-        public int getQuestionIndex() {
-            return questionIndex;
-        }
-
-        public String getQuestionText() {
-            return questionText;
-        }
-
-        public String getComment() {
-            return comment;
-        }
-
-        public long getCreatedAt() {
-            return createdAt;
         }
     }
 }
