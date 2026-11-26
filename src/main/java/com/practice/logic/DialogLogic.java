@@ -42,7 +42,8 @@ public class DialogLogic {
             return startReview(session);
         }
 
-        if (text.equalsIgnoreCase("exit")) {
+        if (text.equalsIgnoreCase("/exit")
+                || text.equalsIgnoreCase("exit")) {
             session.setStage(UserSession.Stage.FINISHED);
             return "Ты завершил викторину. До встречи!\n\n"
                     + getFinishedHint(session);
@@ -85,7 +86,6 @@ public class DialogLogic {
                 && session.getStage() == UserSession.Stage.CHOOSE_DIFFICULTY;
     }
 
-    // Возвращает варианты ответов текущего вопроса для Telegram-кнопок
     public String[] getCurrentOptions(String userId) {
 
         UserSession session = sessions.get(userId);
@@ -99,6 +99,23 @@ public class DialogLogic {
         );
 
         return question.getOptions().clone();
+    }
+
+    // ================= ДАННЫЕ ЗАВЕРШЁННОГО РАУНДА =================
+
+    public boolean isReviewMode(String userId) {
+        UserSession session = sessions.get(userId);
+        return session != null && session.isReviewMode();
+    }
+
+    public int getRoundQuestionCount(String userId) {
+        UserSession session = sessions.get(userId);
+        return session == null ? 0 : session.getQueue().size();
+    }
+
+    public int getRoundCorrectCount(String userId) {
+        UserSession session = sessions.get(userId);
+        return session == null ? 0 : session.getCorrectCount();
     }
 
     // ================= ВЫБОР ТЕМЫ И СЛОЖНОСТИ =================
@@ -291,6 +308,7 @@ public class DialogLogic {
             result += "\n<b>📖 Объяснение:</b> "
                     + question.getExplanation();
         }
+
         if (session.isQueueFinished()) {
             session.setStage(UserSession.Stage.FINISHED);
             return result + "\n\n" + getSummary(session);
@@ -322,7 +340,7 @@ public class DialogLogic {
         }
 
         sb.append("/restart — начать заново (выбор темы и сложности).\n");
-        sb.append("exit — выход.");
+        sb.append("/exit — завершить игру.");
 
         return sb.toString();
     }
@@ -381,8 +399,6 @@ public class DialogLogic {
 
         String[] options = question.getOptions();
 
-        // Если хотя бы один вариант длиннее лимита кнопки,
-        // показываем все варианты в карточке полностью.
         if (!allOptionsFitInButtons(options)) {
 
             result.append("<b>💡 Варианты ответов:</b>\n\n");
@@ -454,8 +470,9 @@ public class DialogLogic {
                 + "/help — показать эту справку\n"
                 + "/hint — подсказка к текущему вопросу\n"
                 + "/review — повторить вопросы, в которых были ошибки\n"
+                + "/profile — показать профиль игрока\n"
                 + "/restart — начать заново (выбор темы и сложности)\n"
-                + "exit — завершить игру.";
+                + "/exit — завершить игру.";
     }
 
     // ================= МЕТОДЫ ДЛЯ СИСТЕМЫ ЖАЛОБ =================

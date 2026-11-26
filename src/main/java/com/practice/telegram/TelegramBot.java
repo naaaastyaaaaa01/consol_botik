@@ -8,9 +8,12 @@ import com.practice.logic.Difficulty;
 
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
+import org.telegram.telegrambots.meta.api.methods.commands.SetMyCommands;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
+import org.telegram.telegrambots.meta.api.objects.commands.BotCommand;
+import org.telegram.telegrambots.meta.api.objects.commands.scope.BotCommandScopeDefault;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
@@ -41,13 +44,26 @@ public class TelegramBot extends TelegramLongPollingBot {
     private final Map<String, ComplaintDraft> pendingComplaints =
             new HashMap<>();
 
-    // Находим три строки рамки карточки
     private static final Pattern CARD_FRAME_PATTERN =
             Pattern.compile("(?m)┌─+┐\\R│.*│\\R└─+┘");
 
-    // Находим только разрешённые теги жирного текста
     private static final Pattern BOLD_TAG_PATTERN =
             Pattern.compile("</?b>");
+
+    // ================= ТИТУЛЫ =================
+
+    private static final int[] TITLE_THRESHOLDS = {
+            0, 20, 50, 100, 200, 500
+    };
+
+    private static final String[] TITLES = {
+            "🌱 Новичок",
+            "📚 Знаток",
+            "🎓 Исследователь",
+            "🥇 Эрудит",
+            "🏅 Мастер знаний",
+            "👑 Гений математики"
+    };
 
     public TelegramBot(DialogLogic logic) {
         this.logic = logic;
@@ -61,7 +77,6 @@ public class TelegramBot extends TelegramLongPollingBot {
 
         Properties properties = new Properties();
 
-        // Читаем bot.properties в кодировке UTF-8
         try (InputStreamReader reader =
                      new InputStreamReader(
                              new FileInputStream("bot.properties"),
@@ -83,6 +98,36 @@ public class TelegramBot extends TelegramLongPollingBot {
         }
 
         loadAdmins(properties);
+        registerCommands();
+    }
+
+    // ================= РЕГИСТРАЦИЯ КОМАНД TELEGRAM =================
+
+    private void registerCommands() {
+
+        List<BotCommand> commands = new ArrayList<>();
+
+        commands.add(new BotCommand("help", "Показать справку"));
+        commands.add(new BotCommand("hint", "Подсказка к текущему вопросу"));
+        commands.add(new BotCommand("review", "Повторить вопросы с ошибками"));
+        commands.add(new BotCommand("restart", "Начать заново"));
+        commands.add(new BotCommand("exit", "Завершить игру"));
+        commands.add(new BotCommand("profile", "Моя статистика"));
+        commands.add(new BotCommand("rating", "Рейтинг игроков"));
+
+        SetMyCommands setMyCommands = new SetMyCommands();
+        setMyCommands.setCommands(commands);
+        setMyCommands.setScope(new BotCommandScopeDefault());
+        setMyCommands.setLanguageCode("ru");
+
+        try {
+            execute(setMyCommands);
+            System.out.println("Команды Telegram успешно зарегистрированы!");
+        } catch (TelegramApiException e) {
+            System.out.println(
+                    "Не удалось зарегистрировать команды Telegram: "
+                            + e.getMessage());
+        }
     }
 
     // ================= АДМИНИСТРАТОРЫ =================
@@ -152,7 +197,9 @@ public class TelegramBot extends TelegramLongPollingBot {
         String command =
                 update.getMessage().getText().trim();
 
-        recordActivity(userId, chatId);
+        String displayName = getDisplayName(update);
+
+        recordActivity(userId, chatId, displayName);
 
         // Команда просмотра жалоб
         if (command.equals("/complaints")
@@ -165,6 +212,22 @@ public class TelegramBot extends TelegramLongPollingBot {
             }
 
             showComplaints(chatId);
+            return;
+        }
+
+        // Команда просмотра профиля
+        if (command.equals("/profile")
+                || command.startsWith("/profile@")) {
+
+            showProfile(chatId, userId);
+            return;
+        }
+
+        // Команда рейтинга
+        if (command.equals("/rating")
+                || command.startsWith("/rating@")) {
+
+            showRating(chatId, userId);
             return;
         }
 
@@ -181,10 +244,402 @@ public class TelegramBot extends TelegramLongPollingBot {
             return;
         }
 
+        boolean finishingRegularQuiz =
+                isRegularQuizAnswer(userId, command);
+
         String response =
                 logic.processInput(userId, command);
 
+        if (finishingRegularQuiz && logic.isFinished(userId)) {
+            recordCompletedQuiz(userId, chatId);
+        }
+
         sendBotResponse(chatId, userId, response);
+    }
+
+    // ================= РЕЙТИНГ ИГРОКОВ =================
+
+    private void showRating(String chatId, String userId) {
+
+        try {
+            List<DatabaseManager.RankingEntry> ranking =
+                    database.getRanking();
+
+            DatabaseManager.UserRanking userRanking =
+                    database.getUserRanking(userId);
+
+            StringBuilder text = new StringBuilder();
+
+            text.append("🏆 <b>РЕЙТИНГ ИГРОКОВ</b>\n");
+            text.append("<i>Лучшие игроки математической викторины</i>\n\n");
+
+            if (ranking == null || ranking.isEmpty()) {
+
+                text.append("Пока рейтинг пуст.\n");
+                text.append("Пройди первую викторину и займи своё место!");
+
+            } else {
+
+                for (int i = 0; i < ranking.size(); i++) {
+
+                    DatabaseManager.RankingEntry entry =
+                            ranking.get(i);
+
+                    String medal;
+
+                    switch (i) {
+                        case 0 -> medal = "🥇";
+                        case 1 -> medal = "🥈";
+                        case 2 -> medal = "🥉";
+                        default -> medal = (i + 1) + ".";
+                    }
+
+                    String name = entry.displayName();
+
+                    if (name == null || name.isBlank()) {
+                        name = "Игрок";
+                    }
+
+                    text.append(medal)
+                            .append(" <b>")
+                            .append(escapeHtml(name))
+                            .append("</b> — ")
+                            .append(entry.correctAnswers())
+                            .append("\n");
+                }
+            }
+
+            text.append("\n");
+
+            text.append("━━━━━━━━━━━━━━━━━━\n\n");
+
+            text.append("👤 <b>ТВОЙ РЕЗУЛЬТАТ</b>\n");
+
+            if (userRanking == null) {
+
+                text.append("Ты пока не участвовала в рейтинге.\n");
+                text.append("Пройди обычную викторину, чтобы получить место!");
+
+            } else {
+
+                text.append("Место: <b>№")
+                        .append(userRanking.rank())
+                        .append("</b>\n");
+
+                text.append("Правильных ответов: <b>")
+                        .append(userRanking.correctAnswers())
+                        .append("</b>\n\n");
+
+                if (userRanking.rank() == 1) {
+                    text.append("👑 <i>Ты возглавляешь рейтинг!</i>");
+                } else if (userRanking.rank() <= 3) {
+                    text.append("✨ <i>Ты в тройке лучших! Так держать!</i>");
+                } else {
+                    text.append("<i>Продолжай играть и поднимайся выше!</i>");
+                }
+            }
+
+            sendHtmlText(chatId, text.toString());
+
+        } catch (SQLException e) {
+
+            System.out.println(
+                    "Ошибка получения рейтинга: " + e.getMessage());
+
+            sendText(chatId,
+                    "Не удалось загрузить рейтинг. Попробуй позже.");
+        }
+    }
+
+    // ================= ПРОФИЛЬ =================
+
+    private void showProfile(String chatId, String userId) {
+
+        try {
+            DatabaseManager.ProfileData profile =
+                    database.getProfile(userId);
+
+            if (profile == null) {
+                sendText(chatId,
+                        "Профиль пока не найден. Напиши /start.");
+                return;
+            }
+
+            String displayName = profile.displayName();
+
+            if (displayName == null || displayName.isBlank()) {
+                displayName = "Пользователь";
+            }
+
+            DateTimeFormatter formatter =
+                    DateTimeFormatter.ofPattern("dd.MM.yyyy")
+                            .withZone(ZoneId.systemDefault());
+
+            String registrationDate =
+                    formatter.format(
+                            Instant.ofEpochMilli(profile.registeredAt()));
+
+            int questionsAnswered = profile.questionsAnswered();
+            int correctAnswers = profile.correctAnswers();
+            int quizzesCompleted = profile.quizzesCompleted();
+
+            double accuracy = questionsAnswered == 0
+                    ? 0.0
+                    : correctAnswers * 100.0 / questionsAnswered;
+
+            String currentTitle = getTitle(correctAnswers);
+            int nextThreshold = getNextThreshold(correctAnswers);
+            String nextTitle = getNextTitle(correctAnswers);
+
+            StringBuilder text = new StringBuilder();
+
+            text.append("🏆 <b>МОИ ДОСТИЖЕНИЯ</b>\n\n");
+
+            text.append("👤 <b>")
+                    .append(escapeHtml(displayName))
+                    .append("</b>\n");
+
+            text.append("📅 В викторине с ")
+                    .append(registrationDate)
+                    .append("\n\n");
+
+            text.append(currentTitle)
+                    .append("\n");
+
+            text.append("<i>")
+                    .append(correctAnswers)
+                    .append(" правильных ответов</i>\n");
+
+            text.append("\n");
+
+            text.append("🎮 Викторин пройдено: <b>")
+                    .append(quizzesCompleted)
+                    .append("</b>\n");
+
+            text.append("📖 Вопросов отвечено: <b>")
+                    .append(questionsAnswered)
+                    .append("</b>\n");
+
+            text.append("✅ Правильных ответов: <b>")
+                    .append(correctAnswers)
+                    .append("</b>\n");
+
+            text.append("🎯 Точность: <b>")
+                    .append(String.format(
+                            java.util.Locale.US,
+                            "%.1f%%",
+                            accuracy))
+                    .append("</b>\n");
+
+            text.append("\n");
+
+            if (nextThreshold == -1) {
+
+                text.append("👑 <b>Максимальный титул достигнут!</b>\n\n");
+
+                text.append(createProgressBar(1.0))
+                        .append("\n");
+
+                text.append("<i>Ты достиг вершины математических знаний!</i>");
+
+            } else {
+
+                int previousThreshold =
+                        getCurrentThreshold(correctAnswers);
+
+                double progress =
+                        (correctAnswers - previousThreshold)
+                                / (double) (nextThreshold - previousThreshold);
+
+                text.append("✨ <b>Следующая цель</b>\n");
+
+                text.append(nextTitle)
+                        .append(" — ")
+                        .append(nextThreshold)
+                        .append(" правильных ответов\n\n");
+
+                text.append(createProgressBar(progress))
+                        .append("\n");
+
+                text.append("<b>")
+                        .append(correctAnswers)
+                        .append(" / ")
+                        .append(nextThreshold)
+                        .append("</b>\n");
+
+                text.append("Осталось ")
+                        .append(nextThreshold - correctAnswers)
+                        .append(" правильных ответов!\n\n");
+
+                text.append("<i>Каждый вопрос приближает тебя к вершине!</i>");
+            }
+
+            sendHtmlText(chatId, text.toString());
+
+        } catch (SQLException e) {
+
+            System.out.println(
+                    "Ошибка получения профиля: " + e.getMessage());
+
+            sendText(chatId,
+                    "Не удалось загрузить профиль. Попробуй позже.");
+        }
+    }
+
+    // ================= СИСТЕМА ТИТУЛОВ =================
+
+    private String getTitle(int correctAnswers) {
+
+        int index = 0;
+
+        for (int i = 0; i < TITLE_THRESHOLDS.length; i++) {
+            if (correctAnswers >= TITLE_THRESHOLDS[i]) {
+                index = i;
+            }
+        }
+
+        return TITLES[index];
+    }
+
+    private int getCurrentThreshold(int correctAnswers) {
+
+        int threshold = 0;
+
+        for (int value : TITLE_THRESHOLDS) {
+            if (correctAnswers >= value) {
+                threshold = value;
+            }
+        }
+
+        return threshold;
+    }
+
+    private int getNextThreshold(int correctAnswers) {
+
+        for (int threshold : TITLE_THRESHOLDS) {
+            if (correctAnswers < threshold) {
+                return threshold;
+            }
+        }
+
+        return -1;
+    }
+
+    private String getNextTitle(int correctAnswers) {
+
+        for (int i = 0; i < TITLE_THRESHOLDS.length; i++) {
+
+            if (correctAnswers < TITLE_THRESHOLDS[i]) {
+                return TITLES[i];
+            }
+        }
+
+        return null;
+    }
+
+    private String createProgressBar(double progress) {
+
+        int totalBlocks = 10;
+
+        progress = Math.max(0.0, Math.min(1.0, progress));
+
+        int filledBlocks =
+                (int) Math.floor(progress * totalBlocks);
+
+        StringBuilder bar = new StringBuilder();
+
+        for (int i = 0; i < totalBlocks; i++) {
+
+            if (i < filledBlocks) {
+                bar.append("█");
+            } else {
+                bar.append("░");
+            }
+        }
+
+        return bar.toString();
+    }
+
+    // ================= УЧЁТ ВИКТОРИН =================
+
+    private boolean isRegularQuizAnswer(
+            String userId,
+            String input
+    ) {
+
+        if (!logic.isAwaitingAnswer(userId)) {
+            return false;
+        }
+
+        if (logic.isReviewMode(userId)) {
+            return false;
+        }
+
+        return input.matches("[1-4]");
+    }
+
+    private void recordCompletedQuiz(
+            String userId,
+            String chatId
+    ) {
+
+        try {
+
+            DatabaseManager.ProfileData before =
+                    database.getProfile(userId);
+
+            int oldCorrectAnswers =
+                    before == null ? 0 : before.correctAnswers();
+
+            String oldTitle =
+                    getTitle(oldCorrectAnswers);
+
+            int questionsCount =
+                    logic.getRoundQuestionCount(userId);
+
+            int correctCount =
+                    logic.getRoundCorrectCount(userId);
+
+            if (questionsCount <= 0) {
+                return;
+            }
+
+            database.recordQuizAttempt(
+                    userId,
+                    questionsCount,
+                    correctCount);
+
+            System.out.println(
+                    "Сохранена завершённая викторина пользователя "
+                            + userId);
+
+            DatabaseManager.ProfileData after =
+                    database.getProfile(userId);
+
+            if (after != null) {
+
+                String newTitle =
+                        getTitle(after.correctAnswers());
+
+                if (!oldTitle.equals(newTitle)) {
+
+                    sendHtmlText(
+                            chatId,
+                            "🎉 <b>НОВОЕ ДОСТИЖЕНИЕ!</b>\n\n"
+                                    + "Ты получила новый титул:\n"
+                                    + newTitle
+                                    + "\n\n"
+                                    + "✨ Продолжай в том же духе!"
+                    );
+                }
+            }
+
+        } catch (SQLException e) {
+
+            System.out.println(
+                    "Ошибка сохранения результата викторины: "
+                            + e.getMessage());
+        }
     }
 
     // ================= ОТПРАВКА ОТВЕТА БОТА =================
@@ -199,7 +654,6 @@ public class TelegramBot extends TelegramLongPollingBot {
         message.setChatId(chatId);
         message.setParseMode("HTML");
 
-        // Меню выбора темы
         if (logic.isChoosingTopic(userId)) {
 
             message.setText(
@@ -210,10 +664,7 @@ public class TelegramBot extends TelegramLongPollingBot {
 
             message.setReplyMarkup(createTopicKeyboard());
 
-        }
-
-        // Меню выбора сложности
-        else if (logic.isChoosingDifficulty(userId)) {
+        } else if (logic.isChoosingDifficulty(userId)) {
 
             message.setText(
                     "✨ <b>Отличный выбор!</b>\n\n"
@@ -223,10 +674,7 @@ public class TelegramBot extends TelegramLongPollingBot {
 
             message.setReplyMarkup(createDifficultyKeyboard());
 
-        }
-
-        // Обычный ответ или карточка вопроса
-        else {
+        } else {
 
             message.setText(toTelegramHtml(response));
 
@@ -262,11 +710,9 @@ public class TelegramBot extends TelegramLongPollingBot {
 
         while (matcher.find()) {
 
-            // Текст перед рамкой: сохраняем жирный шрифт
             result.append(escapeHtmlPreservingBold(
                     text.substring(lastPosition, matcher.start())));
 
-            // Саму рамку помещаем в моноширинный блок
             result.append("<pre>");
             result.append(escapeHtml(matcher.group()));
             result.append("</pre>");
@@ -274,14 +720,12 @@ public class TelegramBot extends TelegramLongPollingBot {
             lastPosition = matcher.end();
         }
 
-        // Остаток текста после последней рамки
         result.append(escapeHtmlPreservingBold(
                 text.substring(lastPosition)));
 
         return result.toString();
     }
 
-    // Экранируем обычный текст, но сохраняем теги <b> и </b>
     private String escapeHtmlPreservingBold(String text) {
 
         Matcher matcher = BOLD_TAG_PATTERN.matcher(text);
@@ -291,23 +735,19 @@ public class TelegramBot extends TelegramLongPollingBot {
 
         while (matcher.find()) {
 
-            // Экранируем текст до тега
             result.append(escapeHtml(
                     text.substring(lastPosition, matcher.start())));
 
-            // Сохраняем сам тег жирного текста
             result.append(matcher.group());
 
             lastPosition = matcher.end();
         }
 
-        // Экранируем оставшийся текст
         result.append(escapeHtml(text.substring(lastPosition)));
 
         return result.toString();
     }
 
-    // Экранирование специальных HTML-символов
     private String escapeHtml(String text) {
 
         return text
@@ -323,12 +763,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         List<List<InlineKeyboardButton>> keyboard =
                 new ArrayList<>();
 
-        // Кнопка выбора всех тем
-        addButtonRow(
-                keyboard,
-                "🌍 Все темы",
-                "topic:0"
-        );
+        addButtonRow(keyboard, "🌍 Все темы", "topic:0");
 
         Topic[] topics = Topic.values();
 
@@ -364,11 +799,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         List<List<InlineKeyboardButton>> keyboard =
                 new ArrayList<>();
 
-        addButtonRow(
-                keyboard,
-                "🎲 Любая сложность",
-                "difficulty:0"
-        );
+        addButtonRow(keyboard, "🎲 Любая сложность", "difficulty:0");
 
         Difficulty[] levels = Difficulty.values();
 
@@ -396,7 +827,8 @@ public class TelegramBot extends TelegramLongPollingBot {
         return markup;
     }
 
-    // Вспомогательный метод для создания ряда с одной кнопкой
+    // ================= ВСПОМОГАТЕЛЬНЫЙ МЕТОД КНОПОК =================
+
     private void addButtonRow(
             List<List<InlineKeyboardButton>> keyboard,
             String text,
@@ -426,10 +858,8 @@ public class TelegramBot extends TelegramLongPollingBot {
         List<List<InlineKeyboardButton>> keyboard =
                 new ArrayList<>();
 
-        // Получаем текст вариантов текущего вопроса
         String[] options = logic.getCurrentOptions(userId);
 
-        // Каждый вариант ответа располагается в отдельной строке
         for (int i = 0; i < options.length; i++) {
 
             InlineKeyboardButton button =
@@ -437,14 +867,12 @@ public class TelegramBot extends TelegramLongPollingBot {
 
             String buttonText = options[i];
 
-            // Telegram допускает не более 64 символов в тексте кнопки
             if (buttonText.length() > 64) {
                 buttonText = buttonText.substring(0, 61) + "...";
             }
 
             button.setText(buttonText);
 
-            // В callback передаём номер вопроса и номер ответа
             button.setCallbackData(
                     "answer:" + questionIndex + ":" + (i + 1));
 
@@ -455,7 +883,6 @@ public class TelegramBot extends TelegramLongPollingBot {
             keyboard.add(answerRow);
         }
 
-        // Отдельный ряд: кнопка жалобы
         InlineKeyboardButton complaintButton =
                 new InlineKeyboardButton();
 
@@ -491,7 +918,10 @@ public class TelegramBot extends TelegramLongPollingBot {
         String chatId =
                 callback.getMessage().getChatId().toString();
 
-        recordActivity(userId, chatId);
+        recordActivity(
+                userId,
+                chatId,
+                getDisplayName(callback));
 
         AnswerCallbackQuery answer =
                 new AnswerCallbackQuery();
@@ -511,31 +941,26 @@ public class TelegramBot extends TelegramLongPollingBot {
             return;
         }
 
-        // Выбор темы
         if (data.startsWith("topic:")) {
             handleTopicCallback(data, userId, chatId);
             return;
         }
 
-        // Выбор сложности
         if (data.startsWith("difficulty:")) {
             handleDifficultyCallback(data, userId, chatId);
             return;
         }
 
-        // Нажатие на вариант ответа
         if (data.startsWith("answer:")) {
             handleAnswerCallback(data, userId, chatId);
             return;
         }
 
-        // Нажатие на жалобу
         if (data.startsWith("complaint:")) {
             handleComplaintCallback(data, userId, chatId);
             return;
         }
 
-        // Рассмотрение жалобы администратором
         if (data.startsWith("review:")) {
 
             if (!isAdmin(userId)) {
@@ -556,7 +981,6 @@ public class TelegramBot extends TelegramLongPollingBot {
             String chatId
     ) {
 
-        // Не разрешаем использовать старые кнопки темы
         if (!logic.isChoosingTopic(userId)) {
             sendText(chatId,
                     "Это меню уже неактуально. Используй последнее сообщение бота.");
@@ -592,7 +1016,6 @@ public class TelegramBot extends TelegramLongPollingBot {
             String chatId
     ) {
 
-        // Не разрешаем использовать старые кнопки сложности
         if (!logic.isChoosingDifficulty(userId)) {
             sendText(chatId,
                     "Это меню уже неактуально. Используй последнее сообщение бота.");
@@ -644,8 +1067,6 @@ public class TelegramBot extends TelegramLongPollingBot {
                 return;
             }
 
-            // Проверяем, что пользователь всё ещё отвечает
-            // именно на тот вопрос, к которому относилась кнопка.
             int currentQuestionIndex =
                     logic.getCurrentQuestionIndex(userId);
 
@@ -656,10 +1077,19 @@ public class TelegramBot extends TelegramLongPollingBot {
                 return;
             }
 
+            boolean finishingRegularQuiz =
+                    isRegularQuizAnswer(
+                            userId,
+                            String.valueOf(selectedAnswer));
+
             String response = logic.processInput(
                     userId,
                     String.valueOf(selectedAnswer)
             );
+
+            if (finishingRegularQuiz && logic.isFinished(userId)) {
+                recordCompletedQuiz(userId, chatId);
+            }
 
             sendBotResponse(chatId, userId, response);
 
@@ -667,6 +1097,8 @@ public class TelegramBot extends TelegramLongPollingBot {
             sendText(chatId, "Не удалось обработать выбранный ответ.");
         }
     }
+
+    // ================= ОБРАБОТКА ЖАЛОБ =================
 
     private void handleComplaintCallback(
             String data,
@@ -847,15 +1279,85 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     // ================= ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ =================
 
-    private void recordActivity(String userId, String chatId) {
+    private void recordActivity(
+            String userId,
+            String chatId,
+            String displayName
+    ) {
 
         try {
-            database.recordActivity(userId, chatId);
+            database.recordActivity(
+                    userId,
+                    chatId,
+                    displayName);
         } catch (SQLException e) {
             System.out.println(
                     "Ошибка сохранения активности пользователя: "
                             + e.getMessage());
         }
+    }
+
+    private String getDisplayName(Update update) {
+
+        if (update.getMessage() == null
+                || update.getMessage().getFrom() == null) {
+            return null;
+        }
+
+        var user = update.getMessage().getFrom();
+
+        String firstName = user.getFirstName();
+        String lastName = user.getLastName();
+
+        String displayName = "";
+
+        if (firstName != null && !firstName.isBlank()) {
+            displayName = firstName;
+        }
+
+        if (lastName != null && !lastName.isBlank()) {
+            if (!displayName.isEmpty()) {
+                displayName += " ";
+            }
+            displayName += lastName;
+        }
+
+        if (displayName.isBlank()) {
+            displayName = user.getUserName();
+        }
+
+        return displayName;
+    }
+
+    private String getDisplayName(CallbackQuery callback) {
+
+        if (callback.getFrom() == null) {
+            return null;
+        }
+
+        var user = callback.getFrom();
+
+        String firstName = user.getFirstName();
+        String lastName = user.getLastName();
+
+        String displayName = "";
+
+        if (firstName != null && !firstName.isBlank()) {
+            displayName = firstName;
+        }
+
+        if (lastName != null && !lastName.isBlank()) {
+            if (!displayName.isEmpty()) {
+                displayName += " ";
+            }
+            displayName += lastName;
+        }
+
+        if (displayName.isBlank()) {
+            displayName = user.getUserName();
+        }
+
+        return displayName;
     }
 
     private void sendText(String chatId, String text) {
@@ -870,6 +1372,21 @@ public class TelegramBot extends TelegramLongPollingBot {
         } catch (TelegramApiException e) {
             System.out.println(
                     "Ошибка отправки сообщения: " + e.getMessage());
+        }
+    }
+
+    private void sendHtmlText(String chatId, String text) {
+
+        SendMessage message = new SendMessage();
+        message.setChatId(chatId);
+        message.setText(text);
+        message.setParseMode("HTML");
+
+        try {
+            execute(message);
+        } catch (TelegramApiException e) {
+            System.out.println(
+                    "Ошибка отправки HTML-сообщения: " + e.getMessage());
         }
     }
 
@@ -889,6 +1406,8 @@ public class TelegramBot extends TelegramLongPollingBot {
         execute(message);
     }
 
+    // ================= ЧЕРНОВИК ЖАЛОБЫ =================
+
     private static class ComplaintDraft {
 
         private final int questionIndex;
@@ -898,11 +1417,12 @@ public class TelegramBot extends TelegramLongPollingBot {
                 int questionIndex,
                 String questionText
         ) {
-
             this.questionIndex = questionIndex;
             this.questionText = questionText;
         }
     }
+
+    // ================= ДАННЫЕ БОТА =================
 
     @Override
     public String getBotUsername() {
